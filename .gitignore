@@ -1,0 +1,44 @@
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Data files
+*.hipo
+*.evio
+*.root
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+# Data files
+*.root
+*.evio.*
+
+# Media files, e.g. plots
+*.eps
+*.pdf
+*.png
+*~
