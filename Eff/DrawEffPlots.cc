@@ -13,7 +13,7 @@ using namespace std;
 /*
  * 
  */
-void DrawEffPlots() {
+void DrawEffPlots( int run, double IBeam, std::string UsrComment ) {
 
     gStyle->SetOptStat(0);
 
@@ -21,12 +21,14 @@ void DrawEffPlots() {
     //int run = 4900; // 65 nA
     //int run = 6616;
     //int run = 6769;
-    int run = 16290;
+    //int run = 16290;
     //int run = 615250;
     //int run = 615275;
 
     const int nCVT_Layers = 6;
     const int nSVT_Layers = 6;
+    const int nBMT_Layers = 6;
+    const int nBMT_Sec = 3;
 
     std::map<int, double> I_bam_Run;
     I_bam_Run[4899] = 80.;
@@ -51,6 +53,12 @@ void DrawEffPlots() {
     m_comment_Run[615275] = "RG-B";
 
 
+    const double z_MaxBMT[nBMT_Layers] = {  17.,  18.,  22.,  22. ,  22. ,  22.};
+    const double z_MinBMT[nBMT_Layers] = { -13., -14., -15., -15.5, -16.5, -17 };
+    const double phi_max[nBMT_Sec] = { 220., 100., 340.};
+    const double phi_min[nBMT_Sec] = { 140., 20., 260. };
+    
+    
     std::string BMT_TTileNames[nCVT_Layers] = {"4C(1)", "4Z(2)", "5Z(3)", "5C(4)", "6Z(5)", "6C(6)"};
 
     TLine *line1 = new TLine();
@@ -61,6 +69,11 @@ void DrawEffPlots() {
     lat1->SetNDC();
 
     TFile *file_in = new TFile(Form("CVT_Eff_%d.root", run));
+    if( !file_in->IsOpen() ){
+        cout<<Form("The file CVT_Eff_%d.root can not be opened.", run)<<endl;
+        cout<<"Exiting"<<endl;
+        exit(1);
+    }
 
     std::map<int, int> m_canv_pad;
     m_canv_pad[0] = 1;
@@ -95,15 +108,30 @@ void DrawEffPlots() {
     TCanvas *c4 = new TCanvas("c4", "", 1800, 1200);
     c4->Divide(3, 2, 0.0001, 0.01);
 
+    
+    ofstream out_BMTTileEff(Form("BMT_Tile_Eff_%d.dat", run));
     for (int i = 0; i < nCVT_Layers; i++) {
         h_z_phi_layers3_[i] = (TH2D*) file_in->Get(Form("h_z_phi_layers3_%d", i));
         h_z_phi_layers3_[i]->SetTitle("; # phi [deg]; z [cm]");
         h_z_layers3_[i] = (TH1D*) h_z_phi_layers3_[i]->ProjectionY(Form("h_z_layers3_%d", i), 1, h_z_phi_layers3_[i]->GetNbinsX());
+        
+        int zBin_Max = h_z_phi_layers3_[i]->GetYaxis()->FindBin(z_MaxBMT[i]);
+        int zBin_Min = h_z_phi_layers3_[i]->GetYaxis()->FindBin(z_MinBMT[i]);
 
         h_z_phi_layers4_[i] = (TH2D*) file_in->Get(Form("h_z_phi_layers4_%d", i));
         h_z_phi_layers4_[i]->SetTitle("; # phi [deg]; z [cm]");
         h_z_layers4_[i] = (TH1D*) h_z_phi_layers4_[i]->ProjectionY(Form("h_z_layers4_%d", i), 1, h_z_phi_layers4_[i]->GetNbinsX());
 
+        double eff[nBMT_Sec];
+        for( int iSec = 0; iSec < nBMT_Sec; iSec++ ){
+            int phiBinMax = h_z_phi_layers3_[i]->GetXaxis()->FindBin(phi_max[iSec]) ;
+            int phiBinMin = h_z_phi_layers3_[i]->GetXaxis()->FindBin(phi_min[iSec]) ;
+            
+            double counts_HasHit = h_z_phi_layers3_[i]->Integral(phiBinMin, phiBinMax, zBin_Min, zBin_Max);
+            double counts_All = h_z_phi_layers4_[i]->Integral(phiBinMin, phiBinMax, zBin_Min, zBin_Max);
+            eff[iSec] = counts_HasHit/counts_All;
+            out_BMTTileEff<<i+1<<setw(5)<<iSec + 1<<setw(15)<<eff[iSec]<<endl;
+        }
         int zMaxBin = i >= nCVT_Layers - 2 ? h_z_phi_layers4_[i]->GetYaxis()->FindBin(23.) : h_z_phi_layers4_[i]->GetNbinsY();
 
         h_phi_layers3_[i] = h_z_phi_layers3_[i]->ProjectionX(Form("h_phi_layers3__%d", i), 1, zMaxBin);
@@ -137,7 +165,10 @@ void DrawEffPlots() {
         lat1->DrawLatex(0.12, 0.3, "Sec. A(2)");
         lat1->DrawLatex(0.42, 0.3, "Sec. B(1)");
         lat1->DrawLatex(0.72, 0.3, "Sec. C(3)");
-
+        for( int iSec = 0; iSec < nBMT_Sec; iSec++ ){
+            line1->DrawLine(phi_min[iSec], eff[iSec], phi_max[iSec], eff[iSec] );
+        }
+        
         line1->DrawLine(120., 0., 120., 1.);
         line1->DrawLine(240., 0., 240., 1.);
 
@@ -152,11 +183,11 @@ void DrawEffPlots() {
     }
 
     c1->cd();
-    lat1->DrawLatex(0.35, 0.96, Form("Run %d, I = %1.1f nA  %s", run, I_bam_Run[run], m_comment_Run[run].c_str()));
+    lat1->DrawLatex(0.35, 0.96, Form("Run %d, I = %1.1f nA  %s", run, IBeam, UsrComment.c_str()));
     c2->cd();
-    lat1->DrawLatex(0.35, 0.96, Form("Run %d, I = %1.1f nA  %s", run, I_bam_Run[run], m_comment_Run[run].c_str()));
+    lat1->DrawLatex(0.35, 0.96, Form("Run %d, I = %1.1f nA  %s", run, IBeam, UsrComment.c_str()));
     c3->cd();
-    lat1->DrawLatex(0.35, 0.96, Form("Run %d, I = %1.1f nA  %s", run, I_bam_Run[run], m_comment_Run[run].c_str()));
+    lat1->DrawLatex(0.35, 0.96, Form("Run %d, I = %1.1f nA  %s", run, IBeam, UsrComment.c_str()));
 
     c1->Print(Form("Figs/BMT_2D_HitEff_%d.pdf", run));
     c1->Print(Form("Figs/BMT_2D_HitEff_%d.png", run));
@@ -234,9 +265,9 @@ void DrawEffPlots() {
     }
 
     c5->cd();
-    lat1->DrawLatex(0.35, 0.96, Form("Run %d, I = %1.1f nA   %s", run, I_bam_Run[run], m_comment_Run[run].c_str()));
+    lat1->DrawLatex(0.35, 0.96, Form("Run %d, I = %1.1f nA   %s", run, IBeam, UsrComment.c_str()));
     c6->cd();
-    lat1->DrawLatex(0.35, 0.96, Form("Run %d, I = %1.1f nA   %s", run, I_bam_Run[run], m_comment_Run[run].c_str()));
+    lat1->DrawLatex(0.35, 0.96, Form("Run %d, I = %1.1f nA   %s", run, IBeam, UsrComment.c_str()));
     
     c5->Print(Form("Figs/SVT_2D_HitEff_%d.pdf", run));
     c5->Print(Form("Figs/SVT_2D_HitEff_%d.png", run));
