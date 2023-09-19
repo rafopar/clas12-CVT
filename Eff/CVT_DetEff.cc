@@ -139,7 +139,6 @@ int main(int argc, char** argv) {
 
     hipo::bank bCVTRecTr(factory.getSchema("CVTRec::Tracks"));
     hipo::bank bCVTRecTraj(factory.getSchema("CVTRec::Trajectory"));
-    hipo::bank bBMTADC(factory.getSchema("BMT::adc"));
     hipo::bank bBMTRecCrosses(factory.getSchema("BMTRec::Crosses"));
     hipo::bank bBMTRecClusters(factory.getSchema("BMTRec::Clusters"));
     hipo::bank bBSTRecCrosses(factory.getSchema("BSTRec::Crosses"));
@@ -168,7 +167,6 @@ int main(int argc, char** argv) {
             event.getStructure(bBSTRecCrosses);
             event.getStructure(bBSTRecClusters);
             event.getStructure(bCVTRecTraj);
-            event.getStructure(bBMTADC);
 
             int nCVTTr = bCVTRecTr.getRows();
             h_nCVTTr.Fill(nCVTTr);
