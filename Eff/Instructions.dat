@@ -1,0 +1,14 @@
+*************** To Compile *****************
+./compile_CVT_DetEff.sh
+
+
+************ To run the analysis program *************
+./CVT_DetEff.exe 11540
+
+
+************ To run the drawing script **************
+root -l 'DrawEffPlots.cc(run, I_beam, "User Comment")'
+
+An example running command is
+root -l 'DrawEffPlots.cc(11540, 50, "RG-B")'
+
