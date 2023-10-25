@@ -12,6 +12,7 @@
 #include <TH2D.h>
 #include <TFile.h>
 #include <TMath.h>
+#include <TVector3.h>
 
 // ===== Hipo headers =====
 #include <reader.h>
@@ -20,6 +21,15 @@
 #include <vector>
 
 using namespace std;
+
+/**
+ * 
+ * @param v_point  The TVector3 of the point that we want to know how far it is from the line
+ * @param v_line_point1   TVector3 of the 1st point on the line
+ * @param v_line_point2   TVector3 of the 2nd point on the line
+ * @return the distance between the point "v_point" and line that passed through v_line_point1 and v_line_point2
+ */
+double DistOfPointFromLine(TVector3& v_point, TVector3 &v_line_point1, TVector3 &v_line_point2);
 
 /*
  * 
@@ -49,10 +59,39 @@ int main(int argc, char** argv) {
     const int nBMTLayers = 6;
     const int nBSTLayers = 6;
     const int nBMTSec = 3;
+    const int nBSTSec[nBSTLayers] = {10, 10, 14, 14, 18, 18};
 
     const double trk_dist_cuts_[nBMTLayers] = {0.5, 2., 2., 0.5, 2., 0.5};
 
     const double chi2NDFCut = 5.;
+
+    ifstream inp_svt_trkDistCuts(Form("BST_distCuts_%d.dat", run));
+
+    if (!inp_svt_trkDistCuts.is_open()) {
+        cout << "****** W A R N I N G ******" << endl;
+        cout << Form("The file 'BST_distCuts_%d.dat' is not open. Will use the default file instead: 'BST_distCuts_default.dat' ", run) << endl;
+        inp_svt_trkDistCuts = ifstream("BST_distCuts_default.dat");
+    } else {
+        cout << Form("Using the file 'BST_distCuts_%d.dat' for track cluster distance cut", run) << endl;
+    }
+
+    std::map< std::pair<int, int>, double > m_distCut;
+
+    /*
+     * Reading the data file to initialize SVT distance cuts.
+     */
+    while (!inp_svt_trkDistCuts.eof()) {
+        int layer, sector;
+        double dist;
+
+        inp_svt_trkDistCuts>>layer;
+        layer = layer - 1;
+        inp_svt_trkDistCuts>>sector;
+        sector = sector - 1;
+        inp_svt_trkDistCuts>>dist;
+
+        m_distCut[ std::make_pair(layer, sector) ] = dist;
+    }
 
     TFile *file_out = new TFile(Form("CVT_Eff_%d.root", run), "Recreate");
 
@@ -105,6 +144,8 @@ int main(int argc, char** argv) {
     TH2D h_z_phi_layers4_[nBMTLayers];
     TH1D h_BMT_Residual_[nBMTLayers];
     TH1D h_BMT_Residual_OnTrk_[nBMTLayers];
+    TH2D h_BST_z_phi_layers_All1_[nBSTLayers];
+    TH2D h_BST_z_phi_layers_HasCluster1_[nBSTLayers];
     TH2D h_BST_z_phi_layers3_[nBSTLayers];
     TH2D h_BST_z_phi_layers4_[nBSTLayers];
 
@@ -123,6 +164,19 @@ int main(int argc, char** argv) {
     for (int il = 0; il < nBSTLayers; il++) {
         h_BST_z_phi_layers3_[il] = TH2D(Form("h_BST_z_phi_layers3_%d", il), "", 100, 0., 360., 100, -15., 15.);
         h_BST_z_phi_layers4_[il] = TH2D(Form("h_BST_z_phi_layers4_%d", il), "", 100, 0., 360., 100, -15., 15.);
+        h_BST_z_phi_layers_All1_[il] = TH2D(Form("h_BST_z_phi_layers_All1_%d", il), "", 100, 0., 360., 100, -15., 15.);
+        h_BST_z_phi_layers_HasCluster1_[il] = TH2D(Form("h_BST_z_phi_layers_HasCluster1_%d", il), "", 100, 0., 360., 100, -15., 15.);
+    }
+
+
+    std::map< std::pair<int, int>, TH1D* > m_BST_Residual;
+    std::map< std::pair<int, int>, TH1D* > m_BST_ResidualOnTrk;
+
+    for (int il = 0; il < nBSTLayers; il++) {
+        for (int isec = 0; isec < nBSTSec[il]; isec++) {
+            m_BST_Residual[ std::make_pair(il, isec) ] = new TH1D(Form("BST_Residual_%d_%d", il, isec), "", 500, -0.01, 1.4);
+            m_BST_ResidualOnTrk[ std::make_pair(il, isec) ] = new TH1D(Form("BST_ResidualOnTrk_%d_%d", il, isec), "", 500, -0.01, 1.4);
+        }
     }
 
     hipo::reader reader;
@@ -205,7 +259,15 @@ int main(int argc, char** argv) {
 
             int nBSTClInTrk1 = 0;
             int BST_Cl_Layers = 0;
+            int BST_Cl_LayersWithResiduals = 0;
             int bst_sec[3] = {0};
+
+            std::map< std::pair<int, int>, std::vector<TVector3> > mv_BST_Cl_coord1; // x1,y1,z1. Template arguments in the std::pair are <layer, sector>
+            std::map< std::pair<int, int>, std::vector<TVector3> > mv_BST_Cl_coord2; // x2,y2,z2. Template arguments in the std::pair are <layer, sector>
+
+            std::map< std::pair<int, int>, std::vector<TVector3> > mv_BST_Cl_coordOntrk1; // x1,y1,z1. Template arguments in the std::pair are <layer, sector>
+            std::map< std::pair<int, int>, std::vector<TVector3> > mv_BST_Cl_coordOntrk2; // x2,y2,z2. Template arguments in the std::pair are <layer, sector>
+
             for (int iBSTCl = 0; iBSTCl < nBSTCl; iBSTCl++) {
                 int trkID = bBSTRecClusters.getInt("trkID", iBSTCl);
                 int layer = bBSTRecClusters.getInt("layer", iBSTCl);
@@ -224,6 +286,14 @@ int main(int argc, char** argv) {
                 phi_cl2 = phi_cl2 < 0. ? phi_cl2 + 360 : phi_cl2;
                 h_BST_Layer_phi2.Fill(phi_cl2, layer);
 
+                if (mv_BST_Cl_coord1.find(std::make_pair(layer - 1, sec - 1)) == mv_BST_Cl_coord1.end()) {
+                    mv_BST_Cl_coord1[std::make_pair(layer - 1, sec - 1)] = std::vector<TVector3>();
+                    mv_BST_Cl_coord2[std::make_pair(layer - 1, sec - 1)] = std::vector<TVector3>();
+                }
+
+                mv_BST_Cl_coord1.at(std::make_pair(layer - 1, sec - 1)).push_back(TVector3(xCl1, yCl1, zCl1));
+                mv_BST_Cl_coord2.at(std::make_pair(layer - 1, sec - 1)).push_back(TVector3(xCl2, yCl2, zCl2));
+
                 h_BST_Layer_z1.Fill(zCl1, layer);
                 h_BST_Layer_z2.Fill(zCl2, layer);
 
@@ -241,6 +311,15 @@ int main(int argc, char** argv) {
                 }
 
                 if (trkID == 1) {
+
+                    if (mv_BST_Cl_coordOntrk1.find(std::make_pair(layer - 1, sec - 1)) == mv_BST_Cl_coordOntrk1.end()) {
+                        mv_BST_Cl_coordOntrk1[std::make_pair(layer - 1, sec - 1)] = std::vector<TVector3>();
+                        mv_BST_Cl_coordOntrk2[std::make_pair(layer - 1, sec - 1)] = std::vector<TVector3>();
+                    }
+
+                    mv_BST_Cl_coordOntrk1.at(std::make_pair(layer - 1, sec - 1)).push_back(TVector3(xCl1, yCl1, zCl1));
+                    mv_BST_Cl_coordOntrk2.at(std::make_pair(layer - 1, sec - 1)).push_back(TVector3(xCl2, yCl2, zCl2));
+
                     nBSTClInTrk1 = nBSTClInTrk1 + 1;
                     BST_Cl_Layers = BST_Cl_Layers | 1 << (layer - 1);
                     bst_sec[region] = sec;
@@ -334,6 +413,7 @@ int main(int argc, char** argv) {
                 int det = bCVTRecTraj.getInt("detector", iTraj);
                 int trkId = bCVTRecTraj.getInt("id", iTraj);
                 int layer_SVT = bCVTRecTraj.getInt("layer", iTraj) - 1; // layers 1 to 6 correspond to SVT, and 7 to 12 correspond to BMT
+                int sector = bCVTRecTraj.getInt("sector", iTraj) - 1;
 
                 int layer_BMT = layer_SVT - 6;
 
@@ -371,6 +451,42 @@ int main(int argc, char** argv) {
                 } else if (det == detCVT && trkId == 1 && layer_SVT < nBSTLayers) {
                     z_layers_BST_[layer_SVT] = z;
                     phi_layers_BST_[layer_SVT] = phi;
+
+                    TVector3 traj_pont(x, y, z);
+
+                    //mv_BST_Cl_coord1
+
+                    TVector3 v3_Traj(x, y, z);
+
+                    if (mv_BST_Cl_coord1.find(std::make_pair(layer_SVT, sector)) != mv_BST_Cl_coord1.end()) {
+
+                        for (int iCl = 0; iCl < mv_BST_Cl_coord1.at(std::make_pair(layer_SVT, sector)).size(); iCl++) {
+
+                            auto point1 = mv_BST_Cl_coord1.at(std::make_pair(layer_SVT, sector)).at(iCl);
+                            auto point2 = mv_BST_Cl_coord2.at(std::make_pair(layer_SVT, sector)).at(iCl);
+
+                            double residual = DistOfPointFromLine(v3_Traj, point1, point2);
+                            m_BST_Residual.at(std::make_pair(layer_SVT, sector))->Fill(residual);
+
+                            if (residual < m_distCut[ std::make_pair(layer_SVT, sector) ]) {
+                                BST_Cl_LayersWithResiduals = BST_Cl_LayersWithResiduals | 1 << (layer_SVT);
+                            }
+                        }
+
+
+                    }
+
+                    if (mv_BST_Cl_coordOntrk1.find(std::make_pair(layer_SVT, sector)) != mv_BST_Cl_coordOntrk1.end()) {
+
+                        for (int iCl = 0; iCl < mv_BST_Cl_coordOntrk1.at(std::make_pair(layer_SVT, sector)).size(); iCl++) {
+
+                            auto point1 = mv_BST_Cl_coordOntrk1.at(std::make_pair(layer_SVT, sector)).at(iCl);
+                            auto point2 = mv_BST_Cl_coordOntrk2.at(std::make_pair(layer_SVT, sector)).at(iCl);
+
+                            double residual = DistOfPointFromLine(v3_Traj, point1, point2);
+                            m_BST_ResidualOnTrk.at(std::make_pair(layer_SVT, sector))->Fill(residual);
+                        }
+                    }
                 }
             }
 
@@ -402,13 +518,20 @@ int main(int argc, char** argv) {
              *                        BST Efficiency
              */
 
-            if ( /*BMT_Cl_Layers_OnTrk == 63 &&*/ nBMTClInTrk1 >= 4 && ((BST_Cl_Layers | 3 << 0 == 63) || (BST_Cl_Layers | 3 << 2 == 63) || (BST_Cl_Layers | 3 << 4 == 63))) {
+            if (/*BMT_Cl_Layers_OnTrk == 63 &&*/ nBMTClInTrk1 >= 4 && ((BST_Cl_Layers | 3 << 0 == 63) || (BST_Cl_Layers | 3 << 2 == 63) || (BST_Cl_Layers | 3 << 4 == 63))) {
 
                 for (int il = 0; il < nBSTLayers; il++) {
                     if (BST_Cl_Layers & 1 << il) {
                         h_BST_z_phi_layers3_[il].Fill(phi_layers_BST_[il], z_layers_BST_[il]);
                     }
+
+                    if (BST_Cl_LayersWithResiduals & 1 << il) {
+                        h_BST_z_phi_layers_HasCluster1_[il].Fill(phi_layers_BST_[il], z_layers_BST_[il]);
+                    }
+
                     h_BST_z_phi_layers4_[il].Fill(phi_layers_BST_[il], z_layers_BST_[il]);
+                    h_BST_z_phi_layers_All1_[il].Fill(phi_layers_BST_[il], z_layers_BST_[il]);
+
                 }
 
             }
@@ -421,4 +544,10 @@ int main(int argc, char** argv) {
     gDirectory->Write();
 
     return 0;
+}
+
+double DistOfPointFromLine(TVector3& v_point, TVector3 &v_line_point1, TVector3 &v_line_point2) {
+    // The formula (10) is taken from WorframMathematica web site https://mathworld.wolfram.com/Point-LineDistance3-Dimensional.html
+
+    return ((v_point - v_line_point1).Cross(v_point - v_line_point2)).Mag() / (v_line_point1 - v_line_point2).Mag();
 }
