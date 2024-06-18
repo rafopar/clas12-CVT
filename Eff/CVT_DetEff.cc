@@ -63,7 +63,8 @@ int main(int argc, char** argv) {
 
     const double trk_dist_cuts_[nBMTLayers] = {0.5, 2., 2., 0.5, 2., 0.5};
 
-    const double chi2NDFCut = 5.;
+    const double chi2NDFCut = 35.;
+    //const double chi2NDFCut = 5.;
 
     ifstream inp_svt_trkDistCuts(Form("BST_distCuts_%d.dat", run));
 
@@ -98,7 +99,7 @@ int main(int argc, char** argv) {
     TH1D h_nCVTTr("h_nCVTTr", "", 11, -0.5, 10.5);
     TH1D h_nCVTTraj("h_nCVTTraj", "", 11, -0.5, 10.5);
 
-    TH1D h_Chi2NDF1("h_Chi2NDF1", "", 200, 0., 40.);
+    TH1D h_Chi2NDF1("h_Chi2NDF1", "", 400, 0., 100.);
 
     TH1D h_trkID_1("h_trkID_1", "", 11, -0.5, 10.5);
     TH1D h_trkID_2("h_trkID_2", "", 11, -0.5, 10.5);
@@ -149,6 +150,8 @@ int main(int argc, char** argv) {
     TH2D h_BST_z_phi_layers3_[nBSTLayers];
     TH2D h_BST_z_phi_layers4_[nBSTLayers];
 
+    TH2D h_BST_Sec_Vs_Phi_[nBSTLayers];
+
     for (int il = 0; il < nBMTLayers; il++) {
         h_phi_layers1_[il] = TH1D(Form("h_phi_layers1_%d", il), "", 60, 0., 360.);
         h_phi_layers2_[il] = TH1D(Form("h_phi_layers2_%d", il), "", 60, 0., 360.);
@@ -166,16 +169,22 @@ int main(int argc, char** argv) {
         h_BST_z_phi_layers4_[il] = TH2D(Form("h_BST_z_phi_layers4_%d", il), "", 100, 0., 360., 100, -15., 15.);
         h_BST_z_phi_layers_All1_[il] = TH2D(Form("h_BST_z_phi_layers_All1_%d", il), "", 100, 0., 360., 100, -15., 15.);
         h_BST_z_phi_layers_HasCluster1_[il] = TH2D(Form("h_BST_z_phi_layers_HasCluster1_%d", il), "", 100, 0., 360., 100, -15., 15.);
+        h_BST_Sec_Vs_Phi_[il] = TH2D(Form("h_BST_Sec_Vs_Phi_%d", il), "", 360, 0., 360, 19, -0.5, 18.5);
     }
 
 
     std::map< std::pair<int, int>, TH1D* > m_BST_Residual;
     std::map< std::pair<int, int>, TH1D* > m_BST_ResidualOnTrk;
 
+    std::map< std::pair<int, int>, TH2D* > m_BST_Traj_z_Phi1;
+    std::map< std::pair<int, int>, TH1D* > m_BST_edge1;
+
     for (int il = 0; il < nBSTLayers; il++) {
         for (int isec = 0; isec < nBSTSec[il]; isec++) {
             m_BST_Residual[ std::make_pair(il, isec) ] = new TH1D(Form("BST_Residual_%d_%d", il, isec), "", 500, -0.01, 1.4);
             m_BST_ResidualOnTrk[ std::make_pair(il, isec) ] = new TH1D(Form("BST_ResidualOnTrk_%d_%d", il, isec), "", 500, -0.01, 1.4);
+            m_BST_Traj_z_Phi1[std::make_pair(il, isec)] = new TH2D(Form("h_BST_Traj_z_Phi1_%d_%d", il, isec), "", 360, 0., 360., 200, -15., 15.);
+            m_BST_edge1[std::make_pair(il, isec)] = new TH1D(Form("m_BST_edge1_%d_%d", il, isec), "", 200, -4., 4.);
         }
     }
 
@@ -211,9 +220,9 @@ int main(int argc, char** argv) {
                 cout.flush() << "Processed " << evCounter << " events \r";
             }
 
-//            if (evCounter > nMaxEv) {
-//                break;
-//            }
+            if (evCounter > nMaxEv) {
+                break;
+            }
 
             event.getStructure(bCVTRecTr);
             event.getStructure(bBMTRecCrosses);
@@ -421,6 +430,8 @@ int main(int argc, char** argv) {
                 float y = bCVTRecTraj.getFloat("y", iTraj);
                 float x = bCVTRecTraj.getFloat("x", iTraj);
 
+                float edge = bCVTRecTraj.getFloat("edge", iTraj);
+
                 float phi = atan2(y, x) * TMath::RadToDeg() - 30.;
                 phi = phi < 0. ? phi + 360. : phi;
 
@@ -431,6 +442,7 @@ int main(int argc, char** argv) {
                     z_layers_[layer_BMT] = z;
                     phi_layers_[layer_BMT] = phi;
                     h_phi_layers1_[layer_BMT].Fill(phi);
+
 
                     double resid_coord = (layer_BMT == 0 || layer_BMT == 3 || layer_BMT == 5) ? z : phi;
 
@@ -452,6 +464,12 @@ int main(int argc, char** argv) {
                     z_layers_BST_[layer_SVT] = z;
                     phi_layers_BST_[layer_SVT] = phi;
 
+                    if (edge > 0.3) {
+                        m_BST_Traj_z_Phi1[ std::make_pair(layer_SVT, sector) ]->Fill(phi, z);
+                        h_BST_Sec_Vs_Phi_[layer_SVT].Fill(phi, sector);
+                    }
+
+                    m_BST_edge1[std::make_pair(layer_SVT, sector)]->Fill(edge);
                     TVector3 traj_pont(x, y, z);
 
                     //mv_BST_Cl_coord1
@@ -518,7 +536,7 @@ int main(int argc, char** argv) {
              *                        BST Efficiency
              */
 
-            if (/*BMT_Cl_Layers_OnTrk == 63 &&*/ nBMTClInTrk1 >= 4 && ((BST_Cl_Layers | 3 << 0 == 63) || (BST_Cl_Layers | 3 << 2 == 63) || (BST_Cl_Layers | 3 << 4 == 63))) {
+            if (/*BMT_Cl_Layers_OnTrk == 63 &&*/ nBMTClInTrk1 >= 4 && (((BST_Cl_Layers | 3 << 0) == 63) || ((BST_Cl_Layers | 3 << 2) == 63) || ((BST_Cl_Layers | 3 << 4) == 63))) {
 
                 for (int il = 0; il < nBSTLayers; il++) {
                     if (BST_Cl_Layers & 1 << il) {
